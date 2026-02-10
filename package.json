@@ -1,0 +1,30 @@
+{
+  "name": "salvager",
+  "version": "1.0.0",
+  "description": "A small scale economy Discord bot, based off of the original code of Moebius. Aims to go further in-depth and reuse logic more efficiently and effectively.",
+  "keywords": [
+    "discord",
+    "economy"
+  ],
+  "homepage": "https://github.com/RingoOrigo/Salvager#readme",
+  "bugs": {
+    "url": "https://github.com/RingoOrigo/Salvager/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RingoOrigo/Salvager.git"
+  },
+  "license": "GPL-3.0-or-later",
+  "author": "Ringo Origo",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "testDeploy": "node ./scripts/testDeploy.js",
+    "start": "node .",
+    "test": "test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "discord.js": "^14.25.1"
+  }
+}
