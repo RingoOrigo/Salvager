@@ -22,7 +22,12 @@ module.exports = {
     async execute (interaction) {
         const target = interaction.options?.getUser('target') ?? interaction.user;
 
-        const targetRow = db.prepare(`SELECT * FROM Users WHERE UserID = ?`).get(target.id);
+        let targetRow = db.prepare(`SELECT * FROM Users WHERE UserID = ?`).get(target.id);
+
+        if (!targetRow) {
+            db.prepare(`INSERT OR IGNORE INTO users (UserID) VALUES (?)`).run(target.id);
+            targetRow = db.prepare(`SELECT * FROM users WHERE UserID = ?`).get(target.id);
+        }
 
         const salvageButton = new ButtonBuilder()
                             .setCustomId('cmd-salvage')
@@ -33,6 +38,7 @@ module.exports = {
 
         const salvages = targetRow.TotalSalvages;
         const legendaries = targetRow.Legendaries;
+        const rares = targetRow.Rares;
         const failures = targetRow.Failures;
         const epics = targetRow.Epics;
         const uncommons = targetRow.Uncommons;
@@ -43,8 +49,9 @@ module.exports = {
                             .setTitle(`<:corecrystal:1470871394639286475> ${target.displayName}'s Salvage Stats <:corecrystal:1470871394639286475>`)
                             .addFields(
                                 { name: '__Current Balance__', value: `${targetRow.Balance} Ouros`},
-                                { name: '__Numeric Stats__', value: `**Total Salvages: ** ${salvages}\n**Legendaries: ** ${legendaries}\n**Epic Salvages: ** ${epics}\n**Uncommon Salvages: ** ${uncommons}\n**Common Salvages: ** ${commons}\n**Failures: ** ${failures}` },
-                                { name: '__Percentage Stats__', value: `**Legendaries: ** ${((legendaries / salvages) * 100).toFixed(2)}%\n**Epic Salvages: **${((epics / salvages) * 100).toFixed(2)}%\n**Uncommon Salvages: ** ${((uncommons / salvages) * 100).toFixed(2)}%\n**Common Salvages: ** ${((commons / salvages) * 100).toFixed(2)}%\n**Failures: ** ${((failures / salvages) * 100).toFixed(2)}%`}
+                                { name: '__Numeric Stats__', value: `**Total Salvages: ** ${salvages}\n**Legendaries: ** ${legendaries}\n**Epic Salvages: ** ${epics}\n**Rares: ** ${rares}\n**Uncommon Salvages: ** ${uncommons}\n**Common Salvages: ** ${commons}\n**Failures: ** ${failures}` },
+                                { name: '__Percentage Stats__', value: `**Legendaries: ** ${salvages == 0 ? 0 : (((legendaries / salvages) * 100).toFixed(2))}%\n**Epic Salvages: **${salvages == 0 ? 0 : (((epics / salvages) * 100).toFixed(2))}%\n**Rare Salvages: **${salvages == 0 ? 0 : (((rares / salvages) * 100).toFixed(2))}%\n**Uncommon Salvages: ** ${salvages == 0 ? 0 : (((uncommons / salvages) * 100).toFixed(2))}%\n**Common Salvages: ** ${salvages == 0 ? 0 : (((commons / salvages) * 100).toFixed(2))}%\n**Failures: ** ${salvages == 0 ? 0 : (((failures / salvages) * 100).toFixed(2))}%`},
+                                { name:  '__Badge Progression__', value: `**Badges: ** ${targetRow.TrinityBadges}\n**Badge Parts O: ** ${targetRow.Ontos}\n**Badge Parts L: ** ${targetRow.Logos}\n**Badge Parts P: ** ${targetRow.Pneuma}\n`}
                             )
                             .setTimestamp();
         
