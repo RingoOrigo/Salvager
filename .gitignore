@@ -141,3 +141,4 @@ vite.config.ts.timestamp-*
 # Sensitive config files
 config/config.json
 *.db
+economy.db-journal

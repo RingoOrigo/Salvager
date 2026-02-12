@@ -1,6 +1,9 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, MessageFlags, ButtonStyle, ApplicationIntegrationType, InteractionContextType} = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, 
+    ButtonBuilder, MessageFlags, ButtonStyle, 
+    ApplicationIntegrationType, InteractionContextType} = require('discord.js');
 const { salvageQuotes, salvageCooldown } = require('../../config/config.json');
 const db = require('../../utils/database.js');
+
 const rarity_map = {
     'Legendary': 'Legendaries',
     'Rare': 'Rares',
@@ -22,21 +25,37 @@ async function determineSalvage () {
 
     // Calculate total weight
     const totalWeight = salvages.reduce((sum, i) => sum + i.Weight, 0);
-    let random = Math.random() * totalWeight;
+    let roll = Math.random() * totalWeight;
+    let result = {};
+    let item = null;
 
     // Retrieve the winning role
     for (const salvage of salvages) {
-        if (random < salvage.Weight) {
+        if (roll < salvage.Weight) {
             const reward = Math.floor(Math.random() * (salvage.MaxValue - salvage.MinValue + 1) + salvage.MinValue);
 
-            return { name: salvage.Rarity, amount: reward };
+            result.salvage = salvage;
+            result.amount = reward;
+            break;
         }
 
-        random -= salvage.Weight;
+        roll -= salvage.Weight;
     }
+
+    if (Math.random() * 100 < result.salvage.ItemWeight) {
+        item = result.salvage.Item;
+    }
+
+    if (item == "Random") {
+        item = item_list[Math.floor(Math.random() * 3)];
+    }
+
+    result.item = item;
+    return result;
 }
 
 function buildEarningEmbed (userRow, rarity, earnings) {
+
     const earningEmbed = new EmbedBuilder()
                             .setColor('8ca4aa')
                             .setTitle(`<:corecrystaldetailed:1470871392881999994> ${rarity == 'Failure' ? 'Salvage Failure...' : `${rarity} Salvage!`} <:corecrystaldetailed:1470871392881999994>`)
@@ -53,53 +72,75 @@ function buildEarningEmbed (userRow, rarity, earnings) {
     return earningEmbed;
 }
 
-async function determineItem (rarity) {
-    // If the rarity is epic or legendary, attempt to generate an item.
-    let rng = Math.random() * 100 + 1;
-
-    if (rarity != "Legendary" && rarity != "Epic") {
-        rng = -1;
+function buildItemEmbed (item) {
+    if (!item) {
+        return null;
     }
 
-    if (rng == 1) {
-        rng = Math.floor(Math.random() * 3);
-        return item_list[rng];
-    }
+    const itemEmbed = new EmbedBuilder()
+                .setTitle(`Item Obtained!`)
+                .setDescription(`Your ${rarity} salvage was exceptionally lucky, you pulled up the ${item} Core!`)
+                .setFooter({
+                    text: `Collect one of each core to craft a badge and earn a boost on all salvages!`
+                })
+                .setColor('FFFFFF')
+                .setTimestamp();
 
-    return null;
+    return itemEmbed;
 }
 
-async function itemEmbedFlow (interaction, user, rarity, earnings, item, userRow, row) {
-    // This will build a different embed to send in the case that an item is generated!
+function updateDB (id, rarity, earnings, item, now, displayName) {
+    let updateQuery;
 
-    const earningEmbed = buildEarningEmbed(userRow, rarity, earnings);
-    const itemEmbed = new EmbedBuilder()
-                    .setTitle(`:${item}: Item Obtained! :${item}:`)
-                    .setDescription(`Your ${rarity} salvage was exceptionally lucky, you pulled up the ${item} Core!`)
-                    .setFooter({
-                        text: `Collect one of each core to craft a badge and earn a boost on all salvages!`
-                    })
-                    .setTimestamp();
+    if (!rarity_map[rarity] && !item) {
+        // Event salvage without item
+        updateQuery = db.prepare(`
+            INSERT INTO Users (UserID, DisplayName, Balance, LastSalvage)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (UserID) DO UPDATE SET
+                DisplayName = excluded.DisplayName,
+                Balance = Balance + excluded.Balance,
+                LastSalvage = excluded.LastSalvage
+        `);
+    } else if (!rarity_map[rarity] && item) {
+        // Event salvage with item
+        updateQuery = db.prepare(`
+            INSERT INTO Users (UserID, DisplayName, Balance, LastSalvage, ${item})
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT (UserID) DO UPDATE SET
+                DisplayName = excluded.DisplayName,
+                Balance = Balance + excluded.Balance,
+                LastSalvage = excluded.LastSalvage,
+                ${item} = ${item} + 1
+        `);
+    } else if (item) {
+        // Standard salvage with item
+        updateQuery = db.prepare(`
+            INSERT INTO Users (UserID, DisplayName, Balance, LastSalvage, TotalSalvages, ${rarity_map[rarity]}, ${item})
+            VALUES (?, ?, ?, ?, 1, 1, 1)
+            ON CONFLICT (UserID) DO UPDATE SET
+                DisplayName = excluded.DisplayName,
+                Balance = Balance + excluded.Balance,
+                LastSalvage = excluded.LastSalvage,
+                TotalSalvages = TotalSalvages + 1,
+                ${rarity_map[rarity]} = ${rarity_map[rarity]} + 1,
+                ${item} = ${item} + 1
+        `);
+    } else {
+        // Standard Salvage, no item
+        updateQuery = db.prepare(`
+            INSERT INTO Users (UserID, DisplayName, Balance, LastSalvage, TotalSalvages, ${rarity_map[rarity]})
+            VALUES (?, ?, ?, ?, 1, 1)
+            ON CONFLICT (UserID) DO UPDATE SET
+                DisplayName = excluded.DisplayName,
+                Balance = Balance + excluded.Balance,
+                LastSalvage = excluded.LastSalvage,
+                TotalSalvages = TotalSalvages + 1,
+                ${rarity_map[rarity]} = ${rarity_map[rarity]} + 1
+        `);
+    }
 
-    const updateStats = db.prepare(`
-                INSERT INTO Users (UserID, Balance, LastSalvage, TotalSalvages, ${rarity_map[rarity]}, ${item})
-                VALUES (?, ?, ?, 1, 1, 1)
-                ON CONFLICT (UserID) DO UPDATE SET
-                    Balance = Balance + excluded.Balance,
-                    LastSalvage = excluded.LastSalvage,
-                    TotalSalvages = TotalSalvages + 1,
-                    ${rarity_map[rarity]} = ${rarity_map[rarity]} + 1,
-                    ${item} = ${item} + 1
-            `);
-
-    updateStats.run(user.id, earnings, now);
-
-    await interaction.followUp({
-        content: `**${user.displayName}** dove for salvage!`,
-        embeds: [earningEmbed, itemEmbed],
-        components: [row]
-    });
-
+    return updateQuery.run(id, displayName, earnings, now);
 }
 
 module.exports = {
@@ -126,7 +167,7 @@ module.exports = {
 
         // Build necessary UI buttons or assign specific variables that will be used later.
         const user = interaction.user;
-        const results = await determineSalvage();
+        const result = await determineSalvage();
         const salvageButton = new ButtonBuilder()
                             .setCustomId('cmd-salvage')
                             .setLabel('Salvage Now!')
@@ -143,8 +184,14 @@ module.exports = {
 
         if (!userRow) {
             // If the user doesn't exist, add them to the database.
-            db.prepare(`INSERT OR IGNORE INTO users (UserID) VALUES (?)`).run(user.id);
-            userRow = db.prepare(`SELECT * FROM users WHERE UserID = ?`).get(user.id);
+            db.prepare(`INSERT OR IGNORE INTO Users (UserID) VALUES (?)`).run(user.id);
+            userRow = db.prepare(`SELECT * FROM Users WHERE UserID = ?`).get(user.id);
+            db.prepare(`(
+                INSERT INTO Users (UserID, DisplayName)
+                VALUES (?, ?)
+                ON CONFLICT (UserID) DO UPDATE SET
+                    displayName = excluded.DisplayName
+            )`).run(user.id, user.globalName);
         }
 
         if (userRow) {
@@ -162,34 +209,26 @@ module.exports = {
                 return;
             }
         }
+        
+        salvage = result.salvage;
+        rarity = salvage.Rarity;
+        earnings = result.amount + (result.amount * (1.125 * userRow.TrinityBadges));
+        const item = result.item;
 
-        rarity = results.name;
-        earnings = results.amount + (results.amount * (1.125 * userRow.TrinityBadges));
-        const item = await determineItem(rarity);
-
-        if (item != null) {
-            return itemEmbedFlow(interaction, user, rarity, earnings, item, userRow, row);
-        }
-
-        // Update the user's info in the database.
-        const updateStats = db.prepare(`
-                INSERT INTO Users (UserID, Balance, LastSalvage, TotalSalvages, ${rarity_map[rarity]})
-                VALUES (?, ?, ?, 1, 1)
-                ON CONFLICT (UserID) DO UPDATE SET
-                    Balance = Balance + excluded.Balance,
-                    LastSalvage = excluded.LastSalvage,
-                    TotalSalvages = TotalSalvages + 1,
-                    ${rarity_map[rarity]} = ${rarity_map[rarity]} + 1
-            `);
-
-        updateStats.run(user.id, earnings, now);
+        updateDB(user.id, rarity, earnings, item, now, user.globalName);
 
         // Build a pretty embed to make things look a bit better.
         const earningEmbed = buildEarningEmbed(userRow, rarity, earnings);
+        const itemEmbed = buildItemEmbed(item);
+        let embeds = [earningEmbed];
+
+        if (itemEmbed) {
+            embeds = [ earningEmbed, itemEmbed ];
+        }
 
         await interaction.followUp({
             content: `**${user.displayName}** dove for salvage!`,
-            embeds: [earningEmbed],
+            embeds: embeds,
             components: [row]
         });
     },
